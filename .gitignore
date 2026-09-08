@@ -1,0 +1,19 @@
+# ── 빌드 산출물 ──
+bin/
+obj/
+publish/
+installer/Output/
+
+# ── 실제 비밀값이 들어가는 로컬 전용 설정 (절대 커밋하지 말 것) ──
+appsettings.Local.json
+appsettings.*.Local.json
+**/appsettings.Local.json
+
+# ── Visual Studio / Rider 사용자별 파일 ──
+*.user
+.vs/
+.idea/
+
+# ── 기타 ──
+*.log
+.DS_Store

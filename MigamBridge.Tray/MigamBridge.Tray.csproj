@@ -1,0 +1,51 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- MigamBridge.csproj와 동일한 TFM/플랫폼으로 맞춰야 참조가 깨끗하게 됨 -->
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PlatformTarget>x64</PlatformTarget>
+    <Platforms>x64</Platforms>
+    <!-- exe 자체의 파일 아이콘(탐색기에 보이는 것)은 지정 안 함 - 실제 로고 확보 후
+         AppIcon.ico를 추가하고 위에 <ApplicationIcon>AppIcon.ico</ApplicationIcon>를 되살릴 것.
+         트레이(우측하단)에 보이는 아이콘은 이것과 별개로 IconFactory.cs가 실행 중 그려서 만듦. -->
+    <AssemblyName>MigamBridgeTray</AssemblyName>
+    <RootNamespace>MigamBridge.Tray</RootNamespace>
+    <!-- 배포 버전. 새 버전 낼 때마다 여기와 installer\MigamBridge.iss의 MyAppVersion을 같이 올릴 것.
+         UpdateChecker가 이 값을 읽어서 업데이트 매니페스트의 최신 버전과 비교한다. -->
+    <Version>1.0.2.0</Version>
+    <!-- 로그온 시 자동시작 대상 exe 하나로 배포할 것이므로, publish는 self-contained 단일 파일 권장
+         (README_TRAY.md의 publish 명령 참고) -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 브리지 API(Nix/X-Rite 드라이버, BridgeHost, DeviceRouter)를 그대로 인프로세스로 재사용 -->
+    <ProjectReference Include="..\MigamBridge\MigamBridge.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- WinForms SDK(Microsoft.NET.Sdk)는 기본적으로 ASP.NET Core 공유 프레임워크를 참조하지 않음.
+         BridgeHost.BuildApp()이 반환하는 WebApplication, DI의 GetRequiredService<T>() 등을
+         이 프로젝트에서 쓰려면 아래 FrameworkReference가 필요함. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 이론상 ProjectReference를 통해 MigamBridge의 Content 항목이 전이적으로 복사되지만,
+         확실하게 하기 위해 여기서도 명시적으로 링크해둠 (Nix 라이선스 설정 / X-Rite 네이티브 DLL) -->
+    <None Include="..\MigamBridge\appsettings.json" Link="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\MigamBridge\appsettings.Local.json" Link="appsettings.Local.json" Condition="Exists('..\MigamBridge\appsettings.Local.json')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\MigamBridge\native\eXact.dll" Link="eXact.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>
