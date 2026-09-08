@@ -22,7 +22,7 @@
 ; ============================================================================
 
 #define MyAppName "MigamBridge"
-#define MyAppVersion "1.0.2.0"
+#define MyAppVersion "1.0.3.0"
 #define MyAppPublisher "Migam"
 #define MyAppExeName "MigamBridgeTray.exe"
 ; publish 폴더 경로 - 이 .iss 파일 기준 상대경로. 실제 폴더 위치에 맞게 수정할 것.

@@ -116,6 +116,66 @@ public static class BridgeHost
             }
         });
 
+        // 연속 캡처(SSE 스트림): 대기 상태를 유지한 채 물리 버튼을 여러 번 눌러도
+        // 누를 때마다 새 측정값을 실시간으로 하나씩 밀어준다. 이 요청/연결이 살아있는 동안
+        // 서버는 계속 대기하고, 클라이언트가 연결을 닫으면(브라우저 fetch abort, EventSource.close() 등)
+        // 그 시점에 대기를 멈춘다. 현재는 X-Rite eXact(IContinuousCaptureDriver 구현체)만 지원.
+        app.MapGet("/v1/devices/{id}/measure/stream", async (HttpContext context, string id, string? mode, DeviceRouter router) =>
+        {
+            IColorimeterDriver driver;
+            try
+            {
+                driver = router.Resolve(id);
+            }
+            catch (Exception ex)
+            {
+                context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                await context.Response.WriteAsync(ex.Message);
+                return;
+            }
+
+            if (driver is not IContinuousCaptureDriver continuous)
+            {
+                context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                await context.Response.WriteAsync($"기기 '{id}'({driver.Vendor})는 연속 캡처를 지원하지 않음 (X-Rite eXact 전용)");
+                return;
+            }
+
+            context.Response.Headers.ContentType = "text/event-stream";
+            context.Response.Headers.CacheControl = "no-cache";
+            // 리버스 프록시(nginx 등)가 응답을 버퍼링해서 실시간 전달을 막는 것을 방지.
+            context.Response.Headers["X-Accel-Buffering"] = "no";
+
+            var ct = context.RequestAborted; // 클라이언트가 연결을 끊으면 자동으로 취소됨
+
+            try
+            {
+                await continuous.ListenForMeasurementsAsync(id, mode, async result =>
+                {
+                    var json = System.Text.Json.JsonSerializer.Serialize(result);
+                    await context.Response.WriteAsync($"data: {json}\n\n", ct);
+                    await context.Response.Body.FlushAsync(ct);
+                }, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                // 클라이언트가 스트림 연결을 정상적으로 끊음 - 별도 처리 불필요
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    var errJson = System.Text.Json.JsonSerializer.Serialize(new { error = ex.Message });
+                    await context.Response.WriteAsync($"event: error\ndata: {errJson}\n\n", ct);
+                    await context.Response.Body.FlushAsync(ct);
+                }
+                catch
+                {
+                    // 이미 끊긴 연결에 쓰기 실패 - 무시
+                }
+            }
+        });
+
         app.MapPost("/v1/devices/{id}/disconnect", async (string id, DeviceRouter router, CancellationToken ct) =>
         {
             await router.DisconnectAsync(id, ct);

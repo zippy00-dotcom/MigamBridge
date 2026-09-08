@@ -17,7 +17,7 @@
     <RootNamespace>MigamBridge.Tray</RootNamespace>
     <!-- 배포 버전. 새 버전 낼 때마다 여기와 installer\MigamBridge.iss의 MyAppVersion을 같이 올릴 것.
          UpdateChecker가 이 값을 읽어서 업데이트 매니페스트의 최신 버전과 비교한다. -->
-    <Version>1.0.2.0</Version>
+    <Version>1.0.3.0</Version>
     <!-- 로그온 시 자동시작 대상 exe 하나로 배포할 것이므로, publish는 self-contained 단일 파일 권장
          (README_TRAY.md의 publish 명령 참고) -->
   </PropertyGroup>

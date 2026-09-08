@@ -17,7 +17,7 @@ namespace MigamBridge.Drivers;
 ///   - 32비트/64비트 DLL이 예제에 각각 있었음 (Win32/ 와 x64/ 폴더) — 프로젝트 PlatformTarget과
 ///     반드시 동일한 비트수의 eXact.dll을 사용해야 함 (현재 csproj는 x64로 설정됨 → x64용 eXact.dll 사용).
 /// </summary>
-public class XriteDriver : IColorimeterDriver
+public class XriteDriver : IColorimeterDriver, IContinuousCaptureDriver
 {
     public string Vendor => "xrite";
 
@@ -290,11 +290,13 @@ public class XriteDriver : IColorimeterDriver
         if (!_connected || !IsConnectedNative())
             throw new InvalidOperationException("X-Rite 기기가 연결되어 있지 않음");
 
-        // ⚠️ 설계 변경: 소프트웨어에서 Measure()를 강제로 호출하지 않음.
+        // ⚠️ 설계: 소프트웨어에서 Measure()를 강제로 호출하지 않음.
         // eXact는 사용자가 대상물에 조리개를 대고 물리 버튼을 눌러야 정확한 위치에서 측정됨.
         // 원본 데모 앱(MainDlg::OnTimer)도 Measure()를 부르지 않고 IsDataReady()만
         // 백그라운드에서 계속 폴링하다가, 물리 버튼으로 측정이 완료되면 그 시점에 데이터를 읽음.
         // 그래서 여기서도 동일하게: 사용자가 버튼을 누를 때까지 기다렸다가 데이터를 읽는다.
+        // (이건 단발성 호출 - 한 번 눌러서 값을 받으면 끝. 대기 중 여러 번 눌러서 매번 값을
+        //  받으려면 ListenForMeasurementsAsync를 쓸 것)
         const int timeoutSeconds = 60; // 사용자가 위치 잡고 버튼 누를 시간 여유 (필요시 조정)
         var deadline = DateTimeOffset.UtcNow.AddSeconds(timeoutSeconds);
         while (!IsDataReady())
@@ -307,6 +309,57 @@ public class XriteDriver : IColorimeterDriver
             await Task.Delay(100, ct); // 데모 앱과 동일한 100ms 폴링 주기
         }
 
+        return ReadCurrentMeasurement(deviceId, mode);
+    }
+
+    /// <summary>
+    /// 대기 상태를 유지한 채로, 물리 버튼이 눌릴 때마다(여러 번이든) 매번 값을 콜백으로 전달한다.
+    /// MeasureAsync와 달리 타임아웃이 없음 - ct가 취소될 때까지(예: 클라이언트가 스트리밍 연결을 끊음)
+    /// 계속 대기 상태로 남아있는 것이 정상 동작이다.
+    ///
+    /// "눌림"을 정확히 한 번씩만 잡아내기 위해 에지(edge) 방식으로 감지한다:
+    ///   ready 신호가 false → true로 바뀌는 순간 = 새 눌림 → 읽어서 콜백 호출
+    ///   그 다음 ready가 다시 false로 내려갈 때까지 기다렸다가 → 다음 눌림을 기다림
+    /// 이렇게 하지 않고 매번 IsDataReady()만 확인하면, 한 번 눌러서 true가 된 상태가
+    /// 다음 물리 눌림 전까지 계속 true로 남아있는 경우 같은 값을 중복으로 여러 번 읽어버릴 수 있음.
+    /// </summary>
+    public async Task ListenForMeasurementsAsync(string deviceId, string? mode, Func<MeasurementResult, Task> onMeasurement, CancellationToken ct)
+    {
+        if (!_connected || !IsConnectedNative())
+            throw new InvalidOperationException("X-Rite 기기가 연결되어 있지 않음");
+
+        while (true)
+        {
+            // 눌림(에지) 대기: false → true
+            while (!IsDataReady())
+            {
+                ct.ThrowIfCancellationRequested();
+                await Task.Delay(100, ct);
+            }
+
+            try
+            {
+                var result = ReadCurrentMeasurement(deviceId, mode);
+                await onMeasurement(result);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // 한 번의 읽기/전달 실패로 전체 연속 캡처 세션이 끊기지 않도록 로그만 남기고 계속 대기.
+                Logger.Log($"[XRite] 연속 캡처 중 측정 읽기 실패 (계속 대기): {ex.Message}");
+            }
+
+            // 다음 눌림을 새 에지로 인식할 수 있도록, 지금 눌림에 대한 ready가 꺼질 때까지 대기.
+            while (IsDataReady())
+            {
+                ct.ThrowIfCancellationRequested();
+                await Task.Delay(100, ct);
+            }
+        }
+    }
+
+    /// <summary>IsDataReady()가 true인 시점에 실제 스펙트럼 데이터를 읽어 공통 결과 형태로 변환. 부수효과 없이 순수 DLL 호출만 수행.</summary>
+    private MeasurementResult ReadCurrentMeasurement(string deviceId, string? mode)
+    {
         int wlCount = GetWavelengthCount();
         if (wlCount <= 0)
             throw new InvalidOperationException("X-Rite: 유효하지 않은 파장 포인트 수");

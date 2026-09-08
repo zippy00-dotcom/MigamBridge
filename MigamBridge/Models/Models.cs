@@ -49,3 +49,19 @@ public interface IColorimeterDriver
 
     Task DisconnectAsync(string deviceId, CancellationToken ct);
 }
+
+/// <summary>
+/// 물리 버튼으로 트리거되는 기기(X-Rite eXact 등) 전용 선택적 인터페이스.
+/// 기존 MeasureAsync는 "대기하다가 한 번 눌리면 그 값을 반환하고 끝"이지만,
+/// 이건 "대기 상태를 유지한 채로 눌릴 때마다 계속 콜백으로 값을 전달"하는 연속 캡처 모드다.
+/// 소프트웨어가 직접 트리거하는 기기(Nix 등)는 이 개념이 없어 구현하지 않아도 됨.
+/// </summary>
+public interface IContinuousCaptureDriver
+{
+    /// <summary>
+    /// 호출자가 ct를 취소할 때까지(예: 스트리밍 연결 종료) 대기를 유지하며,
+    /// 물리 버튼이 눌려 새 측정이 감지될 때마다 onMeasurement를 호출한다.
+    /// 시간 제한(timeout)은 없음 - 계속 대기 상태로 남아있는 것이 정상 동작.
+    /// </summary>
+    Task ListenForMeasurementsAsync(string deviceId, string? mode, Func<MeasurementResult, Task> onMeasurement, CancellationToken ct);
+}

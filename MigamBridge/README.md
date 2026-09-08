@@ -32,7 +32,13 @@ GET  /v1/health
 GET  /v1/devices                     → Nix는 실제 BLE 스캔, X-Rite는 고정 후보 1개(xrite-exact1) 반환
 GET  /v1/devices/connected           → 지금 연결된 기기만 스캔 없이 즉시 반환 (외부 웹/프로그램 폴링용)
 POST /v1/devices/{id}/connect
-POST /v1/devices/{id}/measure        → { wavelength_start_nm, wavelength_step_nm, reflectance: [...] }
+POST /v1/devices/{id}/measure        → 단발성: 버튼 1번 눌림을 기다렸다가 그 값 하나만 반환하고 끝
+                                         { wavelength_start_nm, wavelength_step_nm, reflectance: [...] }
+GET  /v1/devices/{id}/measure/stream → 연속 캡처(SSE): 대기 상태를 유지한 채 버튼을 여러 번 눌러도
+                                         누를 때마다 매번 새 측정값을 하나씩 실시간으로 흘려보냄.
+                                         현재 X-Rite eXact 전용(IContinuousCaptureDriver 구현체만 지원,
+                                         Nix처럼 소프트웨어가 직접 트리거하는 기기는 해당 없음).
+                                         클라이언트가 연결을 닫을 때까지(EventSource.close() 등) 계속 대기.
 POST /v1/devices/{id}/disconnect
 ```
 
@@ -51,4 +57,22 @@ device_id는 `nix-<스캔된ID>` 또는 `xrite-exact1` 형태.
 const res = await fetch("http://localhost:47990/v1/devices/xrite-exact1/measure", { method: "POST" });
 const data = await res.json();
 setLastMeasurement(data.reflectance);
+```
+
+### 대기 중 여러 번 측정 (연속 캡처)
+
+버튼을 누를 때마다 매번 새 값을 받고 싶으면(예: 여러 샘플을 연속으로 찍는 화면) `POST .../measure`
+대신 `EventSource`로 스트림을 열어두면 됨. 화면을 벗어나거나 그만 찍을 때 `es.close()`로 닫으면
+서버 쪽 대기도 그 즉시 멈춤:
+
+```ts
+const es = new EventSource("http://localhost:47990/v1/devices/xrite-exact1/measure/stream");
+es.onmessage = (e) => {
+  const data = JSON.parse(e.data); // 버튼 누를 때마다 이 콜백이 매번 실행됨
+  addMeasurement(data.reflectance);
+};
+es.onerror = () => es.close();
+
+// 그만 찍을 때
+es.close();
 ```
