@@ -1,5 +1,7 @@
 using System.Runtime.InteropServices;
 using MigamBridge.Models;
+// Logger는 MigamBridge(루트) 네임스페이스에 있음 - 이 파일은 MigamBridge.Drivers 하위라 명시적 using 필요
+using MigamBridge;
 
 namespace MigamBridge.Drivers;
 
@@ -118,7 +120,7 @@ public class XriteDriver : IColorimeterDriver
         try
         {
             var settingsRaw = SafePtrToString(GetAvailableSettings());
-            Console.WriteLine($"[XRite] GetAvailableSettings() = \"{settingsRaw}\"");
+            Logger.Log($"[XRite] GetAvailableSettings() = \"{settingsRaw}\"");
 
             if (!string.IsNullOrWhiteSpace(settingsRaw))
             {
@@ -126,13 +128,13 @@ public class XriteDriver : IColorimeterDriver
                 foreach (var name in settingNames)
                 {
                     var current = SafePtrToString(GetOption(name));
-                    Console.WriteLine($"[XRite] Setting '{name}' current value = \"{current}\"");
+                    Logger.Log($"[XRite] Setting '{name}' current value = \"{current}\"");
                 }
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[XRite] 설정 조회 중 예외 (무시하고 계속 진행): {ex.Message}");
+            Logger.Log($"[XRite] 설정 조회 중 예외 (무시하고 계속 진행): {ex.Message}");
         }
 
         // ⚠️ 이전 코드는 "USB가 아닌 옵션(블루투스 페어링 이름)"으로 매번 강제 전환했었는데,
@@ -149,17 +151,18 @@ public class XriteDriver : IColorimeterDriver
             var methodOptionsRaw = SafePtrToString(GetSettingOptions("Connection_Method"));
             options = methodOptionsRaw.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             currentMethod = SafePtrToString(GetOption("Connection_Method"));
-            Console.WriteLine($"[XRite] Connection_Method 가능한 옵션 = \"{methodOptionsRaw}\", 현재 값 = \"{currentMethod}\"");
+            Logger.Log($"[XRite] Connection_Method 가능한 옵션 = \"{methodOptionsRaw}\", 현재 값 = \"{currentMethod}\"");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[XRite] Connection_Method 조회 중 예외 (무시하고 기본 Connect()만 시도): {ex.Message}");
+            Logger.Log($"[XRite] Connection_Method 조회 중 예외 (무시하고 기본 Connect()만 시도): {ex.Message}");
         }
 
         string? activeMethod;
         if (!TryConnectWithFallback(options, currentMethod, out activeMethod))
         {
             var err = SafePtrToString(GetLastErrorString());
+            Logger.Log($"[XRite] 연결 실패 - 시도한 옵션: [{string.Join(", ", options)}], 마지막 오류: \"{err}\"");
             throw new InvalidOperationException($"X-Rite 연결 실패 (USB/블루투스 모두 시도함): {err}");
         }
 
@@ -198,7 +201,7 @@ public class XriteDriver : IColorimeterDriver
             return true;
         }
 
-        Console.WriteLine($"[XRite] 현재 설정({currentMethod})으로 연결 실패 - 다른 옵션으로 순서대로 재시도");
+        Logger.Log($"[XRite] 현재 설정({currentMethod})으로 연결 실패 - 다른 옵션으로 순서대로 재시도");
 
         foreach (var candidate in options)
         {
@@ -208,7 +211,7 @@ public class XriteDriver : IColorimeterDriver
             try
             {
                 var changed = SetOption("Connection_Method", candidate);
-                Console.WriteLine($"[XRite] SetOption(Connection_Method, {candidate}) = {changed}, Connect() 재시도");
+                Logger.Log($"[XRite] SetOption(Connection_Method, {candidate}) = {changed}, Connect() 재시도");
                 if (Connect())
                 {
                     activeMethod = candidate;
@@ -217,7 +220,7 @@ public class XriteDriver : IColorimeterDriver
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[XRite] '{candidate}' 시도 중 예외 (다음 옵션으로 계속): {ex.Message}");
+                Logger.Log($"[XRite] '{candidate}' 시도 중 예외 (다음 옵션으로 계속): {ex.Message}");
             }
         }
 

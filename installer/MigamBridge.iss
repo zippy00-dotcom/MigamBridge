@@ -21,7 +21,7 @@
 ;   - 제거 시 실행 중인 프로세스를 먼저 종료
 ; ============================================================================
 
-#define MyAppName "Migam 측색기 브리지"
+#define MyAppName "MigamBridge"
 #define MyAppVersion "1.0.2.0"
 #define MyAppPublisher "Migam"
 #define MyAppExeName "MigamBridgeTray.exe"

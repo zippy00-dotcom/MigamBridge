@@ -65,9 +65,13 @@ internal static class Strings
 
         ["menu.version"] = ("버전 {0}", "Version {0}", "バージョン {0}"),
         ["menu.checkUpdate"] = ("업데이트 확인", "Check for updates", "アップデートを確認"),
+        ["menu.openLogFolder"] = ("로그 폴더 열기", "Open log folder", "ログフォルダを開く"),
         ["update.checking"] = ("업데이트 확인 중...", "Checking for updates...", "アップデートを確認中..."),
         ["update.installing"] = ("새 버전을 설치합니다. 잠시 후 자동으로 다시 시작됩니다.", "Installing update. The app will restart shortly.", "アップデートをインストールします。まもなく自動的に再起動します。"),
         ["update.upToDate"] = ("이미 최신 버전입니다.", "You're already on the latest version.", "すでに最新バージョンです。"),
+        ["update.notConfigured"] = ("업데이트 서버가 아직 설정되지 않았습니다.", "Update server isn't configured yet.", "アップデートサーバーがまだ設定されていません。"),
+        ["update.checkFailed"] = ("업데이트 확인에 실패했습니다. 네트워크를 확인해주세요.", "Couldn't check for updates. Please check your network.", "アップデートの確認に失敗しました。ネットワークをご確認ください。"),
+        ["update.installFailed"] = ("업데이트 다운로드/설치에 실패했습니다.", "Failed to download or install the update.", "アップデートのダウンロード・インストールに失敗しました。"),
     };
 
     /// <summary>키에 해당하는 현재 언어 문자열을 반환. args가 있으면 string.Format 적용.</summary>

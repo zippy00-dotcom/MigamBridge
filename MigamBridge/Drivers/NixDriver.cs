@@ -1,5 +1,7 @@
 using MigamBridge.Models;
 using NixUniversalSDK;
+// Logger는 MigamBridge(루트) 네임스페이스에 있음 - 이 파일은 MigamBridge.Drivers 하위라 명시적 using 필요
+using MigamBridge;
 // NixUniversalSDK도 자체 DeviceStatus enum(Success/Failure 등 연결결과 코드)을 갖고 있어서
 // 우리 Models.DeviceStatus(Connected/Disconnected 등 상태값)와 이름이 겹침 → 별칭으로 구분.
 using NixDeviceStatus = NixUniversalSDK.DeviceStatus;
@@ -55,13 +57,13 @@ public class NixDriver : IColorimeterDriver, IDisposable
         var signature = config["Nix:LicenseSignature"] ?? throw new InvalidOperationException("Nix:LicenseSignature 설정 필요");
 
         _ = LicenseManager.Activate(options: options, signature: signature);
-        Console.WriteLine($"[Nix] LicenseManager.State = {LicenseManager.State}");
+        Logger.Log($"[Nix] LicenseManager.State = {LicenseManager.State}");
 
         _scanner = new DeviceScanner();
         _scanner.ScanResult += OnScanResult;
-        _scanner.ScannerCreated += (s, e) => Console.WriteLine("[Nix] ScannerCreated");
-        _scanner.ScannerStarted += (s, e) => Console.WriteLine("[Nix] ScannerStarted");
-        _scanner.ScannerStopped += (s, e) => Console.WriteLine("[Nix] ScannerStopped");
+        _scanner.ScannerCreated += (s, e) => Logger.Log("[Nix] ScannerCreated");
+        _scanner.ScannerStarted += (s, e) => Logger.Log("[Nix] ScannerStarted");
+        _scanner.ScannerStopped += (s, e) => Logger.Log("[Nix] ScannerStopped");
     }
 
     private void OnScanResult(object? sender, ScanResultEventArgs args)

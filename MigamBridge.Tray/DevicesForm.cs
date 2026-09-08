@@ -116,6 +116,14 @@ public class DevicesForm : Form
         _rowsByDeviceId.Clear();
         _hint.Text = Strings.T("devices.hint.searching");
 
+        // 이미 연결된 기기는 재스캔 결과와 상관없이 먼저 보여준다.
+        // (BLE 기기는 연결된 상태에서는 광고(advertise)를 멈추는 경우가 많아서, 새로 스캔해도
+        // 이미 연결된 기기가 다시 안 잡혀서 "다시 검색"을 누르면 목록에서 사라지는 문제가 있었음)
+        foreach (var info in _nix.GetConnectedDeviceInfos())
+            UpsertRow(info);
+        foreach (var info in _xrite.GetConnectedDeviceInfos())
+            UpsertRow(info);
+
         try
         {
             // X-Rite는 스캔이 필요없는 고정 후보 - ListDevicesAsync 호출 자체가 DeviceDiscovered를 즉시 발생시킴
