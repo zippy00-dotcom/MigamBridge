@@ -190,6 +190,9 @@ public class NixDriver : IColorimeterDriver, IDisposable
         DeviceRemoved?.Invoke(deviceId);
     }
 
+    /// <summary>mode 파라미터를 안 주면 기본으로 같이 읽어올 모드 목록.</summary>
+    private static readonly string[] DefaultModes = { "M0", "M1" };
+
     public async Task<MeasurementResult> MeasureAsync(string deviceId, string? mode, CancellationToken ct)
     {
         if (!_connectedDevices.TryGetValue(deviceId, out var device))
@@ -199,41 +202,62 @@ public class NixDriver : IColorimeterDriver, IDisposable
         if (result.Status != CommandStatus.Success || result.Measurements is null)
             throw new InvalidOperationException($"Nix 측정 실패: {result.Status}");
 
-        // 여러 측정 모드(M0/M1/M2 등)가 올 수 있음. mode가 지정되면 그 이름과 일치하는 키를 찾고,
-        // 없으면 분광(SpectralData)을 제공하는 첫 번째를 기본값으로 사용.
-        IMeasurementData measurement;
-        string? resolvedMode;
-        if (!string.IsNullOrWhiteSpace(mode))
+        // 분광(SpectralData)을 실제로 제공하는 조건들만 후보로 삼음 (색상값만 있고 분광이 없는 조건 제외).
+        var spectralEntries = result.Measurements.Where(kv => kv.Value.ProvidesSpectral).ToList();
+        if (spectralEntries.Count == 0)
+            throw new InvalidOperationException("분광(spectral) 데이터를 제공하는 측정 결과가 없음");
+
+        // 읽어올 모드 목록 결정.
+        // - mode 지정 안 함: 기본값(M0, M1) 중 이 측정에 실제로 존재하는 것만 사용.
+        //   기기/설정상 M0/M1이 하나도 없으면 폴백으로 분광 제공하는 첫 번째 조건 사용.
+        // - mode 지정함: "M0" 하나만 또는 "M0,M2"처럼 콤마로 여러 개 지정 가능.
+        string[] requestedModes;
+        if (string.IsNullOrWhiteSpace(mode))
         {
-            var match = result.Measurements.FirstOrDefault(kv =>
-                string.Equals(kv.Key.ToString(), mode, StringComparison.OrdinalIgnoreCase));
-            if (match.Value is null)
-                throw new InvalidOperationException(
-                    $"요청한 모드 '{mode}'를 찾을 수 없음. 사용 가능한 모드: {string.Join(", ", result.Measurements.Keys)}");
-            measurement = match.Value;
-            resolvedMode = match.Key.ToString();
+            requestedModes = DefaultModes
+                .Where(m => spectralEntries.Any(kv => string.Equals(kv.Key.ToString(), m, StringComparison.OrdinalIgnoreCase)))
+                .ToArray();
+            if (requestedModes.Length == 0)
+                requestedModes = new[] { spectralEntries[0].Key.ToString()! };
         }
         else
         {
-            var match = result.Measurements.FirstOrDefault(kv => kv.Value.ProvidesSpectral);
-            measurement = match.Value ?? throw new InvalidOperationException("분광(spectral) 데이터를 제공하는 측정 결과가 없음");
-            resolvedMode = match.Key.ToString();
+            requestedModes = mode.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
         }
 
-        var spectral = measurement.SpectralData;
-        var wavelengths = spectral.Lambda; // 예: [400, 410, ..., 700]
-        var values = spectral.Value;       // 반사율. 0~1 스케일인지 0~100인지는 SDK 문서/실측으로 확인 필요
+        var modes = new List<ModeMeasurement>(requestedModes.Length);
+        int wlStart = 0, wlStep = 10;
+        bool first = true;
 
-        var step = wavelengths.Length > 1 ? wavelengths[1] - wavelengths[0] : 10;
+        foreach (var requested in requestedModes)
+        {
+            var match = spectralEntries.FirstOrDefault(kv =>
+                string.Equals(kv.Key.ToString(), requested, StringComparison.OrdinalIgnoreCase));
+            if (match.Value is null)
+                throw new InvalidOperationException(
+                    $"요청한 모드 '{requested}'를 찾을 수 없음. 사용 가능한 모드: {string.Join(", ", spectralEntries.Select(e => e.Key.ToString()))}");
+
+            var spectral = match.Value.SpectralData;
+            var wavelengths = spectral.Lambda; // 예: [400, 410, ..., 700]
+            var values = spectral.Value;       // 반사율. 0~1 스케일인지 0~100인지는 SDK 문서/실측으로 확인 필요
+
+            if (first)
+            {
+                wlStart = wavelengths[0];
+                wlStep = wavelengths.Length > 1 ? wavelengths[1] - wavelengths[0] : 10;
+                first = false;
+            }
+
+            modes.Add(new ModeMeasurement(match.Key.ToString()!, values.Select(v => (double)v).ToArray()));
+        }
 
         return new MeasurementResult(
             deviceId,
             "nix",
             DateTimeOffset.UtcNow,
-            WavelengthStartNm: wavelengths[0],
-            WavelengthStepNm: step,
-            Reflectance: values.Select(v => (double)v).ToArray(),
-            MeasurementMode: resolvedMode
+            WavelengthStartNm: wlStart,
+            WavelengthStepNm: wlStep,
+            Modes: modes
         );
     }
 

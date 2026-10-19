@@ -30,8 +30,25 @@ public static class BridgeHost
         // ── CORS: 로컬 웹 콘솔에서만 호출 허용 ──
         // 허용 도메인은 appsettings.json의 Bridge:AllowedOrigins에서 읽는다.
         // (배포 도메인이 바뀌어도 재컴파일 없이 설정 파일만 고치면 됨)
-        var allowedOrigins = builder.Configuration.GetSection("Bridge:AllowedOrigins").Get<string[]>()
-            ?? new[] { "http://localhost:3000", "https://localhost:3000" };
+        // 설정이 비어있을 때의 기본값. 사내망 시험 서버(192.168.0.11)의 웹 주소를 포함한다.
+        // 웹 주소가 바뀌면 appsettings.json(또는 appsettings.Local.json)만 고치고 브리지를 재시작하면 됨.
+        var allowedOrigins = builder.Configuration.GetSection("Bridge:AllowedOrigins").Get<string[]>();
+        if (allowedOrigins is null || allowedOrigins.Length == 0)
+        {
+            allowedOrigins = new[]
+            {
+                "http://localhost:3000", "https://localhost:3000",
+                "http://localhost:3001", "https://localhost:3001",
+                "http://192.168.0.11:3000", "http://192.168.0.11:3001"
+            };
+        }
+        // 설정 오타(끝의 '/' 등)로 Origin 비교가 어긋나는 것을 방지: 공백/끝 슬래시 제거
+        allowedOrigins = allowedOrigins
+            .Select(o => o.Trim().TrimEnd('/'))
+            .Where(o => o.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        Logger.Log($"[CORS] 허용 origin: {string.Join(", ", allowedOrigins)}");
         builder.Services.AddCors(options =>
         {
             options.AddDefaultPolicy(policy =>
@@ -44,17 +61,23 @@ public static class BridgeHost
 
         var app = builder.Build();
 
-        app.UseCors();
-
         // ── Private Network Access(PNA) 프리플라이트 대응 ──
+        // ⚠️ 반드시 UseCors() "앞"에 둘 것: UseCors는 OPTIONS 사전 요청을 직접 응답하고 파이프라인을
+        //    끝내버리기 때문에, 뒤에 두면 사전 요청에는 이 헤더가 절대 붙지 않는다.
+        //    (192.168.x.x 같은 사설망 주소의 웹 → 127.0.0.1 브리지 호출 시 브라우저가 이 헤더를 요구함)
+        //    허용 출처(Origin)일 때만 붙여서, 허용 목록 밖 사이트에는 PNA 허용을 주지 않는다.
         app.Use(async (context, next) =>
         {
-            if (context.Request.Headers.ContainsKey("Access-Control-Request-Private-Network"))
+            if (context.Request.Headers.ContainsKey("Access-Control-Request-Private-Network")
+                && context.Request.Headers.TryGetValue("Origin", out var origin)
+                && allowedOrigins.Contains(origin.ToString().TrimEnd('/'), StringComparer.OrdinalIgnoreCase))
             {
-                context.Response.Headers.Append("Access-Control-Allow-Private-Network", "true");
+                context.Response.Headers["Access-Control-Allow-Private-Network"] = "true";
             }
             await next();
         });
+
+        app.UseCors();
 
         MapEndpoints(app);
 

@@ -22,7 +22,7 @@
 ; ============================================================================
 
 #define MyAppName "MigamBridge"
-#define MyAppVersion "1.0.3.0"
+#define MyAppVersion "1.0.4.2"
 #define MyAppPublisher "Migam"
 #define MyAppExeName "MigamBridgeTray.exe"
 ; publish 폴더 경로 - 이 .iss 파일 기준 상대경로. 실제 폴더 위치에 맞게 수정할 것.
@@ -66,9 +66,12 @@ Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 
 [Run]
-; 설치 완료 직후 바로 실행할지 물어봄. runasoriginaluser로 관리자 권한이 아닌
+; 설치 완료 직후 바로 실행. runasoriginaluser로 관리자 권한이 아닌
 ; 일반 사용자 권한으로 실행되도록 함(트레이 앱을 굳이 관리자로 띄울 필요 없음).
-Filename: "{app}\{#MyAppExeName}"; Description: "설치 후 바로 실행"; Flags: nowait postinstall skipifsilent runasoriginaluser
+; ⚠️ skipifsilent를 일부러 안 씀: 자동 업데이트(UpdateChecker)가 /VERYSILENT로 무음 설치를
+;    실행하는데, skipifsilent가 있으면 그 경우 재실행이 통째로 스킵되어 사용자가 직접 다시
+;    켜야 하는 문제가 있었음. 수동 설치든 자동 업데이트든 항상 설치 후 바로 실행되게 함.
+Filename: "{app}\{#MyAppExeName}"; Description: "설치 후 바로 실행"; Flags: nowait postinstall runasoriginaluser
 
 [UninstallRun]
 ; 제거 전에 실행 중인 트레이 앱을 먼저 종료 (안 그러면 exe/dll이 사용 중이라 삭제 실패할 수 있음)

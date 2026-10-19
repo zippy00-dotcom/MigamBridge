@@ -33,9 +33,15 @@ GET  /v1/devices                     → Nix는 실제 BLE 스캔, X-Rite는 고
 GET  /v1/devices/connected           → 지금 연결된 기기만 스캔 없이 즉시 반환 (외부 웹/프로그램 폴링용)
 POST /v1/devices/{id}/connect
 POST /v1/devices/{id}/measure        → 단발성: 버튼 1번 눌림을 기다렸다가 그 값 하나만 반환하고 끝
-                                         { wavelength_start_nm, wavelength_step_nm, reflectance: [...] }
+                                         mode 쿼리 파라미터 생략 시 기본으로 M0+M1을 한 번에 같이 반환.
+                                         (한 번의 물리 측정에 이미 M0/M1이 동시에 들어있어서 기기를 두 번
+                                          찍을 필요 없음) 특정 모드만 원하면 ?mode=M0 또는 ?mode=M0,M2 형태로 지정.
+                                         { wavelength_start_nm, wavelength_step_nm,
+                                           modes: [ { mode: "M0", reflectance: [...] },
+                                                    { mode: "M1", reflectance: [...] } ] }
 GET  /v1/devices/{id}/measure/stream → 연속 캡처(SSE): 대기 상태를 유지한 채 버튼을 여러 번 눌러도
                                          누를 때마다 매번 새 측정값을 하나씩 실시간으로 흘려보냄.
+                                         mode 파라미터 규칙은 위 /measure와 동일(기본 M0+M1 동시 반환).
                                          현재 X-Rite eXact 전용(IContinuousCaptureDriver 구현체만 지원,
                                          Nix처럼 소프트웨어가 직접 트리거하는 기기는 해당 없음).
                                          클라이언트가 연결을 닫을 때까지(EventSource.close() 등) 계속 대기.
@@ -56,7 +62,10 @@ device_id는 `nix-<스캔된ID>` 또는 `xrite-exact1` 형태.
 ```ts
 const res = await fetch("http://localhost:47990/v1/devices/xrite-exact1/measure", { method: "POST" });
 const data = await res.json();
-setLastMeasurement(data.reflectance);
+// data.modes 는 기본적으로 [{ mode: "M0", reflectance: [...] }, { mode: "M1", reflectance: [...] }]
+const m0 = data.modes.find(m => m.mode === "M0")?.reflectance;
+const m1 = data.modes.find(m => m.mode === "M1")?.reflectance;
+setLastMeasurement({ m0, m1 });
 ```
 
 ### 대기 중 여러 번 측정 (연속 캡처)
@@ -69,10 +78,19 @@ setLastMeasurement(data.reflectance);
 const es = new EventSource("http://localhost:47990/v1/devices/xrite-exact1/measure/stream");
 es.onmessage = (e) => {
   const data = JSON.parse(e.data); // 버튼 누를 때마다 이 콜백이 매번 실행됨
-  addMeasurement(data.reflectance);
+  // data.modes 는 기본적으로 M0/M1이 같이 옴 - 필요한 모드만 골라 쓰면 됨
+  addMeasurement(data.modes);
 };
 es.onerror = () => es.close();
 
 // 그만 찍을 때
 es.close();
 ```
+
+## CORS 허용 웹 주소 설정
+
+웹 콘솔의 접속 주소(Origin)가 `appsettings.json`의 `Bridge:AllowedOrigins`에 있어야 브라우저가 브리지 응답을 받아준다.
+주소가 바뀌면(IP/포트/HTTPS) 이 목록에 정확히 추가하고 브리지를 재시작한다(재빌드 불필요).
+기본값: `localhost:3000/3001`, `192.168.0.11:3000/3001`. `*`는 쓰지 말 것(인증 없는 로컬 프로그램이라 아무 사이트나 측색기를 호출할 수 있게 됨).
+시작 로그에 `[CORS] 허용 origin: ...` 줄로 실제 적용된 목록이 남는다.
+사설망(192.168.x.x) 웹 → 127.0.0.1 브리지 호출에 필요한 `Access-Control-Allow-Private-Network` 응답도 허용 출처에 한해 자동으로 붙는다.

@@ -1,3 +1,4 @@
+using System.Drawing;
 using MigamBridge.Drivers;
 using MigamBridge.Models;
 
@@ -14,6 +15,10 @@ namespace MigamBridge.Tray;
 ///   사실상 MAC 주소 역할을 함(공식 문서 확인됨). 그래서 우리 내부 device_id("nix-xxx")에서
 ///   접두사를 뗀 원본 Id를 그대로 MAC 열에 보여준다. X-Rite는 후보가 1개뿐이라 "-"로 표시.
 /// - 연결/해제 실패 시 별도 팝업(MessageBox) 없이, 상태 열만 원래 상태로 조용히 되돌아간다.
+/// - MAC/ID 열 색상: 지금 연결된 기기는 파랑, 예전에 한 번이라도 연결에 성공했던 기기는(지금은
+///   연결 안 돼있어도) 연한 파랑, 한 번도 연결해본 적 없는 기기는 기본 글자색으로 구분 표시한다.
+///   이력은 ConnectionHistoryStore(%AppData%\Migam\connectionhistory.json)에 누적 저장되어
+///   프로그램을 재시작해도 유지된다.
 /// - 다국어: Strings.T(key)로 모든 문구를 가져오고, Strings.LanguageChanged 이벤트를 구독해서
 ///   언어가 바뀌면 제목/열 헤더/버튼/각 행의 상태 텍스트를 다시 그린다.
 /// </summary>
@@ -25,6 +30,16 @@ public class DevicesForm : Form
     private readonly Label _hint;
     private readonly Button _refreshButton;
     private readonly Dictionary<string, ListViewItem> _rowsByDeviceId = new();
+
+    // "한 번이라도 연결에 성공했던 기기 ID" 누적 목록. MAC/ID 열 색상 구분에 사용.
+    private readonly HashSet<string> _everConnectedIds = ConnectionHistoryStore.Load();
+
+    // 연결 이력 색상 구분:
+    //   지금 연결됨          → 파랑
+    //   이력은 있으나 지금은 아님 → 연한 파랑
+    //   이력 없음(처음 보는 기기) → 기본 글자색
+    private static readonly Color ConnectedColor = Color.Blue;
+    private static readonly Color EverConnectedColor = Color.LightBlue;
 
     public DevicesForm(NixDriver nix, XriteDriver xrite)
     {
@@ -185,9 +200,16 @@ public class DevicesForm : Form
 
         var mac = ExtractMacOrId(info);
 
+        // 지금 연결된 상태로 확인되면 이력에 기록(최초 1회만 파일 저장 - 이미 있으면 스킵).
+        if (info.Status == MigamBridge.Models.DeviceStatus.Connected && _everConnectedIds.Add(info.Id))
+            ConnectionHistoryStore.Save(_everConnectedIds);
+
+        var macColor = MacColorFor(info);
+
         if (_rowsByDeviceId.TryGetValue(info.Id, out var row))
         {
             row.SubItems[1].Text = mac;
+            row.SubItems[1].ForeColor = macColor;
             row.SubItems[2].Text = StatusText(info.Status);
             row.Tag = info;
         }
@@ -195,11 +217,23 @@ public class DevicesForm : Form
         {
             var newRow = new ListViewItem(new[] { $"{info.Model} ({info.Vendor})", mac, StatusText(info.Status) })
             {
-                Tag = info
+                Tag = info,
+                UseItemStyleForSubItems = false // 서브아이템(MAC 열)별로 별도 색을 적용하기 위해 필요
             };
+            newRow.SubItems[1].ForeColor = macColor;
             _list.Items.Add(newRow);
             _rowsByDeviceId[info.Id] = newRow;
         }
+    }
+
+    /// <summary>지금 연결됨 → 파랑, 연결 이력 있음(지금은 아님) → 연한 파랑, 이력 없음 → 기본 글자색.</summary>
+    private Color MacColorFor(DeviceInfo info)
+    {
+        if (info.Status == MigamBridge.Models.DeviceStatus.Connected)
+            return ConnectedColor;
+        if (_everConnectedIds.Contains(info.Id))
+            return EverConnectedColor;
+        return SystemColors.WindowText;
     }
 
     /// <summary>

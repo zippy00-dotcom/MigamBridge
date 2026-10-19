@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Linq;
 using MigamBridge.Models;
 // Logger는 MigamBridge(루트) 네임스페이스에 있음 - 이 파일은 MigamBridge.Drivers 하위라 명시적 using 필요
 using MigamBridge;
@@ -357,6 +358,9 @@ public class XriteDriver : IColorimeterDriver, IContinuousCaptureDriver
         }
     }
 
+    /// <summary>mode 파라미터를 안 주면 기본으로 같이 읽어올 모드 목록.</summary>
+    private static readonly string[] DefaultModes = { "M0", "M1" };
+
     /// <summary>IsDataReady()가 true인 시점에 실제 스펙트럼 데이터를 읽어 공통 결과 형태로 변환. 부수효과 없이 순수 DLL 호출만 수행.</summary>
     private MeasurementResult ReadCurrentMeasurement(string deviceId, string? mode)
     {
@@ -378,24 +382,44 @@ public class XriteDriver : IColorimeterDriver, IContinuousCaptureDriver
         for (int i = 0; i < setCount; i++)
             setNames[i] = SafePtrToString(GetSpectralSetName(i));
 
-        int dataSet = 0;
-        string? resolvedMode = setNames.Length > 0 ? setNames[0] : null;
-        if (!string.IsNullOrWhiteSpace(mode))
+        // 읽어올 모드 목록 결정.
+        // - mode 지정 안 함: 기본값(M0, M1) 중 기기에 실제로 존재하는 것만 사용.
+        //   기기가 아예 M0/M1을 안 갖고 있으면(장비/설정에 따라 다를 수 있음) 폴백으로 첫 번째 세트 사용.
+        // - mode 지정함: "M0" 하나만 또는 "M0,M2"처럼 콤마로 여러 개 지정 가능.
+        string[] requestedModes;
+        if (string.IsNullOrWhiteSpace(mode))
         {
-            var idx = Array.FindIndex(setNames, n => string.Equals(n, mode, StringComparison.OrdinalIgnoreCase));
-            if (idx < 0)
-                throw new InvalidOperationException(
-                    $"요청한 모드 '{mode}'를 찾을 수 없음. 사용 가능한 모드: {string.Join(", ", setNames)}");
-            dataSet = idx;
-            resolvedMode = setNames[idx];
+            requestedModes = DefaultModes
+                .Where(m => setNames.Any(n => string.Equals(n, m, StringComparison.OrdinalIgnoreCase)))
+                .ToArray();
+            if (requestedModes.Length == 0)
+                requestedModes = setNames.Length > 0 ? new[] { setNames[0] } : Array.Empty<string>();
+        }
+        else
+        {
+            requestedModes = mode.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
         }
 
-        var reflectance = new double[wlCount];
-        for (int i = 0; i < wlCount; i++)
+        if (requestedModes.Length == 0)
+            throw new InvalidOperationException("X-Rite: 사용 가능한 측정 모드가 없음");
+
+        var modes = new List<ModeMeasurement>(requestedModes.Length);
+        foreach (var requested in requestedModes)
         {
-            // GetSpectralData가 0~100(%) 스케일인지 0~1인지는 실측으로 확인 필요.
-            // 일단 0~100으로 가정하고 /100 정규화. 실측 후 다르면 이 줄만 수정.
-            reflectance[i] = GetSpectralData(dataSet, i) / 100.0;
+            var idx = Array.FindIndex(setNames, n => string.Equals(n, requested, StringComparison.OrdinalIgnoreCase));
+            if (idx < 0)
+                throw new InvalidOperationException(
+                    $"요청한 모드 '{requested}'를 찾을 수 없음. 사용 가능한 모드: {string.Join(", ", setNames)}");
+
+            var reflectance = new double[wlCount];
+            for (int i = 0; i < wlCount; i++)
+            {
+                // GetSpectralData가 0~100(%) 스케일인지 0~1인지는 실측으로 확인 필요.
+                // 일단 0~100으로 가정하고 /100 정규화. 실측 후 다르면 이 줄만 수정.
+                reflectance[i] = GetSpectralData(idx, i) / 100.0;
+            }
+
+            modes.Add(new ModeMeasurement(setNames[idx], reflectance));
         }
 
         int step = wlCount > 1 ? wavelengths[1] - wavelengths[0] : 10;
@@ -406,8 +430,7 @@ public class XriteDriver : IColorimeterDriver, IContinuousCaptureDriver
             DateTimeOffset.UtcNow,
             WavelengthStartNm: wavelengths[0],
             WavelengthStepNm: step,
-            Reflectance: reflectance,
-            MeasurementMode: resolvedMode
+            Modes: modes
         );
     }
 
